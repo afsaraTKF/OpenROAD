@@ -74,6 +74,14 @@ struct FlexDRViaData
   friend class boost::serialization::access;
 };
 
+
+struct WeightMultipliers {
+  frUInt4 drc_cost;
+  frUInt4 marker_cost;
+  frUInt4 fixed_cost;
+  float decay;
+};
+
 class FlexDR
 {
  public:
@@ -133,6 +141,12 @@ class FlexDR
   void setIter(int iterNum) { iter_ = iterNum; }
   // maxSpacing fix
   void fixMaxSpacing();
+
+  // custom weights
+  static std::vector<WeightMultipliers>weight_multipliers_;
+  static void initDefaultMultipliers();
+  
+
 
  private:
   TritonRoute* router_;

@@ -598,6 +598,13 @@ void FlexDR::searchRepair(const SearchRepairArgs& args)
       suffix = "th";
     }
     logger_->info(DRT, 195, "Start {}{} optimization iteration.", iter, suffix);
+
+    std::string weights_info = fmt::format("DRC, Marker, Fixed, Decay: [{},{},{},{}]",
+                                    weight_multipliers_[iter].drc_cost,
+                                    weight_multipliers_[iter].marker_cost,
+                                    weight_multipliers_[iter].fixed_cost,
+                                    weight_multipliers_[iter].decay);
+    logger_->info(DRT,196, weights_info);
   }
   if (graphics_) {
     graphics_->startIter(iter);
@@ -1036,77 +1043,149 @@ void FlexDR::end(bool done)
   }
 }
 
+void FlexDR::initDefaultMultipliers() {
+  weight_multipliers_.clear();
+  weight_multipliers_ = {
+    {1, 0, 1, 1.0f},     // iter 0
+    {1, 1, 1, 1.0f},     // iter 1
+    {1, 1, 1, 1.0f},     // iter 2
+    {1, 1, 2, 1.0f},     // iter 3
+    {1, 1, 2, 1.0f},     // iter 4
+    {1, 1, 2, 1.0f},     // iter 5
+    {1, 1, 2, 1.0f},     // iter 6
+    {1, 1, 2, 1.0f},     // iter 7
+    {1, 1, 2, 1.0f},     // iter 8
+    {1, 1, 2, 1.0f},     // iter 9
+    {2, 1, 3, 1.0f},     // iter 10
+    {2, 1, 3, 1.0f},     // iter 11
+    {2, 1, 3, 1.0f},     // iter 12
+    {2, 1, 3, 1.0f},     // iter 13
+    {2, 1, 3, 1.0f},     // iter 14
+    {2, 1, 4, 1.0f},     // iter 15
+    {2, 1, 4, 1.0f},     // iter 16
+    {1, 1, 4, 1.0f},     // iter 17
+    {4, 1, 4, 1.0f},     // iter 18
+    {4, 1, 4, 1.0f},     // iter 19
+    {4, 1, 10, 1.0f},   // iter 20
+    {4, 1, 10, 1.0f},    // iter 21
+    {4, 1, 10, 1.0f},    // iter 22
+    {1, 1, 10, 1.0f},    // iter 23
+    {4, 1, 10, 1.0f},    // iter 24
+    {1, 1, 10, 1.0f},    // iter 25
+    {8, 2, 10, 1.0f},    // iter 26
+    {8, 2, 10, 1.0f},    // iter 27
+    {8, 2, 10, 1.0f},    // iter 28
+    {8, 2, 10, 1.0f},    // iter 29
+    {1, 1, 50, 1.0f},    // iter 30
+    {8, 2, 50, 1.0f},    // iter 31
+    {8, 2, 50, 1.0f},    // iter 32
+    {1, 1, 50, 1.0f},    // iter 33
+    {16, 4, 50, 1.0f},   // iter 34
+    {16, 4, 50, 1.0f},   // iter 35
+    {16, 4, 50, 1.0f},   // iter 36
+    {1, 1, 50, 1.0f},    // iter 37
+    {16, 4, 50, 1.0f},   // iter 38
+    {16, 4, 50, 1.0f},   // iter 39
+    {16, 4, 100, 1.0f},  // iter 40
+    {1, 1, 100, 1.0f},   // iter 41
+    {16, 4, 100, 1.0f},  // iter 42
+    {16, 4, 100, 1.0f},  // iter 43
+    {1, 1, 100, 1.0f},   // iter 44
+    {16, 4, 100, 1.0f},  // iter 45
+    {16, 4, 100, 1.0f},  // iter 46
+    {16, 4, 100, 1.0f},  // iter 47
+    {16, 4, 100, 1.0f},  // iter 48
+    {1, 1, 100, 1.0f},   // iter 49
+    {32, 8, 100, 1.0f},  // iter 50
+    {1, 1, 100, 1.0f},   // iter 51
+    {32, 8, 100, 1.0f},  // iter 52
+    {32, 8, 100, 1.0f},  // iter 53
+    {32, 8, 100, 1.0f},  // iter 54
+    {32, 8, 100, 1.0f},  // iter 55
+    {32, 8, 100, 1.0f},  // iter 56
+    {1, 1, 100, 1.0f},   // iter 57
+    {1, 1, 100, 1.0f},   // iter 58
+    {64, 16, 100, 1.0f}, // iter 59
+    {64, 16, 100, 1.0f}, // iter 60
+    {64, 16, 100, 1.0f}, // iter 61
+    {64, 16, 100, 1.0f}, // iter 62
+    {64, 16, 100, 1.0f}, // iter 63
+    {64, 16, 100, 1.0f}  // iter 64
+  };
+}
+
 static std::vector<FlexDR::SearchRepairArgs> strategy()
 {
   const frUInt4 shapeCost = ROUTESHAPECOST;
 
   // clang-format off
-  return {
-    {7,  0,  3,      shapeCost,               0,       shapeCost, 0.950, RipUpMode::ALL    ,  true}, //  0
-    {7, -2,  3,      shapeCost,       shapeCost,       shapeCost, 0.950, RipUpMode::ALL    ,  true}, //  1
-    {7, -5,  3,      shapeCost,       shapeCost,       shapeCost, 0.950, RipUpMode::ALL    ,  true}, //  2
-    {7,  0,  8,      shapeCost,      MARKERCOST,   2 * shapeCost, 0.950, RipUpMode::DRC    , false}, //  3
-    {7, -1,  8,      shapeCost,      MARKERCOST,   2 * shapeCost, 0.950, RipUpMode::DRC    , false}, //  4
-    {7, -2,  8,      shapeCost,      MARKERCOST,   2 * shapeCost, 0.950, RipUpMode::DRC    , false}, //  5
-    {7, -3,  8,      shapeCost,      MARKERCOST,   2 * shapeCost, 0.950, RipUpMode::DRC    , false}, //  6
-    {7, -4,  8,      shapeCost,      MARKERCOST,   2 * shapeCost, 0.950, RipUpMode::DRC    , false}, //  7
-    {7, -5,  8,      shapeCost,      MARKERCOST,   2 * shapeCost, 0.950, RipUpMode::DRC    , false}, //  8
-    {7, -6,  8,      shapeCost,      MARKERCOST,   2 * shapeCost, 0.950, RipUpMode::DRC    , false}, //  9
-    {7,  0,  8,  2 * shapeCost,      MARKERCOST,   3 * shapeCost, 0.950, RipUpMode::DRC    , false}, // 10
-    {7, -1,  8,  2 * shapeCost,      MARKERCOST,   3 * shapeCost, 0.950, RipUpMode::DRC    , false}, // 11
-    {7, -2,  8,  2 * shapeCost,      MARKERCOST,   3 * shapeCost, 0.950, RipUpMode::DRC    , false}, // 12
-    {7, -3,  8,  2 * shapeCost,      MARKERCOST,   3 * shapeCost, 0.950, RipUpMode::DRC    , false}, // 13
-    {7, -4,  8,  2 * shapeCost,      MARKERCOST,   3 * shapeCost, 0.950, RipUpMode::DRC    , false}, // 14
-    {7, -5,  8,  2 * shapeCost,      MARKERCOST,   4 * shapeCost, 0.950, RipUpMode::DRC    , false}, // 15
-    {7, -6,  8,  2 * shapeCost,      MARKERCOST,   4 * shapeCost, 0.950, RipUpMode::DRC    , false}, // 16
-    {7, -3,  8,      shapeCost,      MARKERCOST,   4 * shapeCost, 0.950, RipUpMode::ALL    , false}, // 17
-    {7,  0,  8,  4 * shapeCost,      MARKERCOST,   4 * shapeCost, 0.950, RipUpMode::DRC    , false}, // 18
-    {7, -1,  8,  4 * shapeCost,      MARKERCOST,   4 * shapeCost, 0.950, RipUpMode::DRC    , false}, // 19
-    {7, -2,  8,  4 * shapeCost,      MARKERCOST,  10 * shapeCost, 0.950, RipUpMode::DRC    , false}, // 20
-    {7, -3,  8,  4 * shapeCost,      MARKERCOST,  10 * shapeCost, 0.950, RipUpMode::DRC    , false}, // 21
-    {7, -4,  8,  4 * shapeCost,      MARKERCOST,  10 * shapeCost, 0.950, RipUpMode::DRC    , false}, // 22
-    {7, -5,  8,      shapeCost,      MARKERCOST,  10 * shapeCost, 0.950, RipUpMode::NEARDRC, false}, // 23
-    {7, -6,  8,  4 * shapeCost,      MARKERCOST,  10 * shapeCost, 0.950, RipUpMode::DRC    , false}, // 24
-    {5, -2,  8,      shapeCost,      MARKERCOST,  10 * shapeCost, 0.950, RipUpMode::ALL    , false}, // 25
-    {7,  0,  8,  8 * shapeCost,  2 * MARKERCOST,  10 * shapeCost, 0.950, RipUpMode::DRC    , false}, // 26
-    {7, -1,  8,  8 * shapeCost,  2 * MARKERCOST,  10 * shapeCost, 0.950, RipUpMode::DRC    , false}, // 27
-    {7, -2,  8,  8 * shapeCost,  2 * MARKERCOST,  10 * shapeCost, 0.950, RipUpMode::DRC    , false}, // 28
-    {7, -3,  8,  8 * shapeCost,  2 * MARKERCOST,  10 * shapeCost, 0.950, RipUpMode::DRC    , false}, // 29
-    {7, -4,  8,      shapeCost,      MARKERCOST,  50 * shapeCost, 0.950, RipUpMode::NEARDRC, false}, // 30
-    {7, -5,  8,  8 * shapeCost,  2 * MARKERCOST,  50 * shapeCost, 0.950, RipUpMode::DRC    , false}, // 31
-    {7, -6,  8,  8 * shapeCost,  2 * MARKERCOST,  50 * shapeCost, 0.950, RipUpMode::DRC    , false}, // 32
-    {3, -1,  8,      shapeCost,      MARKERCOST,  50 * shapeCost, 0.950, RipUpMode::ALL    , false}, // 33
-    {7,  0,  8, 16 * shapeCost,  4 * MARKERCOST,  50 * shapeCost, 0.950, RipUpMode::DRC    , false}, // 34
-    {7, -1,  8, 16 * shapeCost,  4 * MARKERCOST,  50 * shapeCost, 0.950, RipUpMode::DRC    , false}, // 35
-    {7, -2,  8, 16 * shapeCost,  4 * MARKERCOST,  50 * shapeCost, 0.950, RipUpMode::DRC    , false}, // 36
-    {7, -3,  8,      shapeCost,      MARKERCOST,  50 * shapeCost, 0.950, RipUpMode::NEARDRC, false}, // 37
-    {7, -4,  8, 16 * shapeCost,  4 * MARKERCOST,  50 * shapeCost, 0.950, RipUpMode::DRC    , false}, // 38
-    {7, -5,  8, 16 * shapeCost,  4 * MARKERCOST,  50 * shapeCost, 0.950, RipUpMode::DRC    , false}, // 39
-    {7, -6,  8, 16 * shapeCost,  4 * MARKERCOST, 100 * shapeCost, 0.990, RipUpMode::DRC    , false}, // 40
-    {3, -2,  8,      shapeCost,      MARKERCOST, 100 * shapeCost, 0.990, RipUpMode::ALL    , false}, // 41
-    {7,  0, 16, 16 * shapeCost,  4 * MARKERCOST, 100 * shapeCost, 0.990, RipUpMode::DRC    , false}, // 42
-    {7, -1, 16, 16 * shapeCost,  4 * MARKERCOST, 100 * shapeCost, 0.990, RipUpMode::DRC    , false}, // 43
-    {7, -2, 16,      shapeCost,      MARKERCOST, 100 * shapeCost, 0.990, RipUpMode::NEARDRC, false}, // 44
-    {7, -3, 16, 16 * shapeCost,  4 * MARKERCOST, 100 * shapeCost, 0.990, RipUpMode::DRC    , false}, // 45
-    {7, -4, 16, 16 * shapeCost,  4 * MARKERCOST, 100 * shapeCost, 0.990, RipUpMode::DRC    , false}, // 46
-    {7, -5, 16, 16 * shapeCost,  4 * MARKERCOST, 100 * shapeCost, 0.990, RipUpMode::DRC    , false}, // 47
-    {7, -6, 16, 16 * shapeCost,  4 * MARKERCOST, 100 * shapeCost, 0.990, RipUpMode::DRC    , false}, // 48
-    {3, -0,  8,      shapeCost,      MARKERCOST, 100 * shapeCost, 0.990, RipUpMode::ALL    , false}, // 49
-    {7,  0, 32, 32 * shapeCost,  8 * MARKERCOST, 100 * shapeCost, 0.999, RipUpMode::DRC    , false}, // 50
-    {7, -1, 32,      shapeCost,      MARKERCOST, 100 * shapeCost, 0.999, RipUpMode::NEARDRC, false}, // 51
-    {7, -2, 32, 32 * shapeCost,  8 * MARKERCOST, 100 * shapeCost, 0.999, RipUpMode::DRC    , false}, // 52
-    {7, -3, 32, 32 * shapeCost,  8 * MARKERCOST, 100 * shapeCost, 0.999, RipUpMode::DRC    , false}, // 53
-    {7, -4, 32, 32 * shapeCost,  8 * MARKERCOST, 100 * shapeCost, 0.999, RipUpMode::DRC    , false}, // 54
-    {7, -5, 32, 32 * shapeCost,  8 * MARKERCOST, 100 * shapeCost, 0.999, RipUpMode::DRC    , false}, // 55
-    {7, -6, 32, 32 * shapeCost,  8 * MARKERCOST, 100 * shapeCost, 0.999, RipUpMode::DRC    , false}, // 56
-    {3, -1,  8,      shapeCost,      MARKERCOST, 100 * shapeCost, 0.999, RipUpMode::ALL    , false}, // 57
-    {7,  0, 64,      shapeCost,      MARKERCOST, 100 * shapeCost, 0.999, RipUpMode::NEARDRC, false}, // 58
-    {7, -1, 64, 64 * shapeCost, 16 * MARKERCOST, 100 * shapeCost, 0.999, RipUpMode::DRC    , false}, // 59
-    {7, -2, 64, 64 * shapeCost, 16 * MARKERCOST, 100 * shapeCost, 0.999, RipUpMode::DRC    , false}, // 60
-    {7, -3, 64, 64 * shapeCost, 16 * MARKERCOST, 100 * shapeCost, 0.999, RipUpMode::DRC    , false}, // 61
-    {7, -4, 64, 64 * shapeCost, 16 * MARKERCOST, 100 * shapeCost, 0.999, RipUpMode::DRC    , false}, // 62
-    {7, -5, 64, 64 * shapeCost, 16 * MARKERCOST, 100 * shapeCost, 0.999, RipUpMode::DRC    , false}, // 63
-    {7, -6, 64, 64 * shapeCost, 16 * MARKERCOST, 100 * shapeCost, 0.999, RipUpMode::DRC    , false}  // 64
+  return std::vector<FlexDR::SearchRepairArgs>{
+  // Assuming shapeCost and MARKERCOST are predefined constants or variables
+    {7,  0,  3, FlexDR::weight_multipliers_[0].drc_cost * shapeCost,      FlexDR::weight_multipliers_[0].marker_cost * MARKERCOST,     FlexDR::weight_multipliers_[0].fixed_cost * shapeCost,      FlexDR::weight_multipliers_[0].decay * 0.950f, RipUpMode::ALL    ,  true},  //  0
+    {7, -2,  3, FlexDR::weight_multipliers_[1].drc_cost * shapeCost,      FlexDR::weight_multipliers_[1].marker_cost * shapeCost,      FlexDR::weight_multipliers_[1].fixed_cost * shapeCost,      FlexDR::weight_multipliers_[1].decay * 0.950f, RipUpMode::ALL    ,  true},  //  1
+    {7, -5,  3, FlexDR::weight_multipliers_[2].drc_cost * shapeCost,      FlexDR::weight_multipliers_[2].marker_cost * shapeCost,      FlexDR::weight_multipliers_[2].fixed_cost * shapeCost,      FlexDR::weight_multipliers_[2].decay * 0.950f, RipUpMode::ALL    ,  true},  //  2
+    {7,  0,  8, FlexDR::weight_multipliers_[3].drc_cost * shapeCost,      FlexDR::weight_multipliers_[3].marker_cost * MARKERCOST,     FlexDR::weight_multipliers_[3].fixed_cost * shapeCost,      FlexDR::weight_multipliers_[3].decay * 0.950f, RipUpMode::DRC    , false}, //  3
+    {7, -1,  8, FlexDR::weight_multipliers_[4].drc_cost * shapeCost,      FlexDR::weight_multipliers_[4].marker_cost * MARKERCOST,     FlexDR::weight_multipliers_[4].fixed_cost * shapeCost,      FlexDR::weight_multipliers_[4].decay * 0.950f, RipUpMode::DRC    , false}, //  4
+    {7, -2,  8, FlexDR::weight_multipliers_[5].drc_cost * shapeCost,      FlexDR::weight_multipliers_[5].marker_cost * MARKERCOST,     FlexDR::weight_multipliers_[5].fixed_cost * shapeCost,      FlexDR::weight_multipliers_[5].decay * 0.950f, RipUpMode::DRC    , false}, //  5
+    {7, -3,  8, FlexDR::weight_multipliers_[6].drc_cost * shapeCost,      FlexDR::weight_multipliers_[6].marker_cost * MARKERCOST,     FlexDR::weight_multipliers_[6].fixed_cost * shapeCost,      FlexDR::weight_multipliers_[6].decay * 0.950f, RipUpMode::DRC    , false}, //  6
+    {7, -4,  8, FlexDR::weight_multipliers_[7].drc_cost * shapeCost,      FlexDR::weight_multipliers_[7].marker_cost * MARKERCOST,     FlexDR::weight_multipliers_[7].fixed_cost * shapeCost,      FlexDR::weight_multipliers_[7].decay * 0.950f, RipUpMode::DRC    , false}, //  7
+    {7, -5,  8, FlexDR::weight_multipliers_[8].drc_cost * shapeCost,      FlexDR::weight_multipliers_[8].marker_cost * MARKERCOST,     FlexDR::weight_multipliers_[8].fixed_cost * shapeCost,      FlexDR::weight_multipliers_[8].decay * 0.950f, RipUpMode::DRC    , false}, //  8
+    {7, -6,  8, FlexDR::weight_multipliers_[9].drc_cost * shapeCost,      FlexDR::weight_multipliers_[9].marker_cost * MARKERCOST,     FlexDR::weight_multipliers_[9].fixed_cost * shapeCost,      FlexDR::weight_multipliers_[9].decay * 0.950f, RipUpMode::DRC    , false}, //  9
+    {7,  0,  8, FlexDR::weight_multipliers_[10].drc_cost * shapeCost,     FlexDR::weight_multipliers_[10].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[10].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[10].decay * 0.950f, RipUpMode::DRC    , false}, // 10
+    {7, -1,  8, FlexDR::weight_multipliers_[11].drc_cost * shapeCost,     FlexDR::weight_multipliers_[11].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[11].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[11].decay * 0.950f, RipUpMode::DRC    , false}, // 11
+    {7, -2,  8, FlexDR::weight_multipliers_[12].drc_cost * shapeCost,     FlexDR::weight_multipliers_[12].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[12].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[12].decay * 0.950f, RipUpMode::DRC    , false}, // 12
+    {7, -3,  8, FlexDR::weight_multipliers_[13].drc_cost * shapeCost,     FlexDR::weight_multipliers_[13].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[13].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[13].decay * 0.950f, RipUpMode::DRC    , false}, // 13
+    {7, -4,  8, FlexDR::weight_multipliers_[14].drc_cost * shapeCost,     FlexDR::weight_multipliers_[14].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[14].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[14].decay * 0.950f, RipUpMode::DRC    , false}, // 14
+    {7, -5,  8, FlexDR::weight_multipliers_[15].drc_cost * shapeCost,     FlexDR::weight_multipliers_[15].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[15].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[15].decay * 0.950f, RipUpMode::DRC    , false}, // 15
+    {7, -6,  8, FlexDR::weight_multipliers_[16].drc_cost * shapeCost,     FlexDR::weight_multipliers_[16].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[16].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[16].decay * 0.950f, RipUpMode::DRC    , false}, // 16
+    {7, -3,  8, FlexDR::weight_multipliers_[17].drc_cost * shapeCost,     FlexDR::weight_multipliers_[17].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[17].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[17].decay * 0.950f, RipUpMode::ALL    , false}, // 17
+    {7,  0,  8, FlexDR::weight_multipliers_[18].drc_cost * shapeCost,     FlexDR::weight_multipliers_[18].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[18].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[18].decay * 0.950f, RipUpMode::DRC    , false}, // 18
+    {7, -1,  8, FlexDR::weight_multipliers_[19].drc_cost * shapeCost,     FlexDR::weight_multipliers_[19].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[19].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[19].decay * 0.950f, RipUpMode::DRC    , false}, // 19
+    {7, -2,  8, FlexDR::weight_multipliers_[20].drc_cost * shapeCost,     FlexDR::weight_multipliers_[20].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[20].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[20].decay * 0.950f, RipUpMode::DRC    , false}, // 20
+    {7, -3,  8, FlexDR::weight_multipliers_[21].drc_cost * shapeCost,     FlexDR::weight_multipliers_[21].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[21].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[21].decay * 0.950f, RipUpMode::DRC    , false}, // 21
+    {7, -4,  8, FlexDR::weight_multipliers_[22].drc_cost * shapeCost,     FlexDR::weight_multipliers_[22].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[22].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[22].decay * 0.950f, RipUpMode::DRC    , false}, // 22
+    {7, -5,  8, FlexDR::weight_multipliers_[23].drc_cost * shapeCost,     FlexDR::weight_multipliers_[23].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[23].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[23].decay * 0.950f, RipUpMode::NEARDRC, false}, // 23
+    {7, -6,  8, FlexDR::weight_multipliers_[24].drc_cost * shapeCost,     FlexDR::weight_multipliers_[24].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[24].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[24].decay * 0.950f, RipUpMode::DRC    , false}, // 24
+    {5, -2,  8, FlexDR::weight_multipliers_[25].drc_cost * shapeCost,     FlexDR::weight_multipliers_[25].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[25].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[25].decay * 0.950f, RipUpMode::ALL    , false}, // 25
+    {7,  0,  8, FlexDR::weight_multipliers_[26].drc_cost * shapeCost,     FlexDR::weight_multipliers_[26].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[26].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[26].decay * 0.950f, RipUpMode::DRC    , false}, // 26
+    {7, -1,  8, FlexDR::weight_multipliers_[27].drc_cost * shapeCost,     FlexDR::weight_multipliers_[27].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[27].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[27].decay * 0.950f, RipUpMode::DRC    , false}, // 27
+    {7, -2,  8, FlexDR::weight_multipliers_[28].drc_cost * shapeCost,     FlexDR::weight_multipliers_[28].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[28].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[28].decay * 0.950f, RipUpMode::DRC    , false}, // 28
+    {7, -3,  8, FlexDR::weight_multipliers_[29].drc_cost * shapeCost,     FlexDR::weight_multipliers_[29].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[29].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[29].decay * 0.950f, RipUpMode::DRC    , false}, // 29
+    {7, -4,  8, FlexDR::weight_multipliers_[30].drc_cost * shapeCost,     FlexDR::weight_multipliers_[30].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[30].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[30].decay * 0.950f, RipUpMode::NEARDRC, false}, // 30
+    {7, -5,  8, FlexDR::weight_multipliers_[31].drc_cost * shapeCost,     FlexDR::weight_multipliers_[31].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[31].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[31].decay * 0.950f, RipUpMode::DRC    , false}, // 31
+    {7, -6,  8, FlexDR::weight_multipliers_[32].drc_cost * shapeCost,     FlexDR::weight_multipliers_[32].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[32].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[32].decay * 0.950f, RipUpMode::DRC    , false}, // 32
+    {3, -1,  8, FlexDR::weight_multipliers_[33].drc_cost * shapeCost,     FlexDR::weight_multipliers_[33].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[33].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[33].decay * 0.950f, RipUpMode::ALL    , false}, // 33
+    {7,  0,  8, FlexDR::weight_multipliers_[34].drc_cost * shapeCost,     FlexDR::weight_multipliers_[34].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[34].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[34].decay * 0.950f, RipUpMode::DRC    , false}, // 34
+    {7, -1,  8, FlexDR::weight_multipliers_[35].drc_cost * shapeCost,     FlexDR::weight_multipliers_[35].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[35].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[35].decay * 0.950f, RipUpMode::DRC    , false}, // 35
+    {7, -2,  8, FlexDR::weight_multipliers_[36].drc_cost * shapeCost,     FlexDR::weight_multipliers_[36].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[36].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[36].decay * 0.950f, RipUpMode::DRC    , false}, // 36
+    {7, -3,  8, FlexDR::weight_multipliers_[37].drc_cost * shapeCost,     FlexDR::weight_multipliers_[37].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[37].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[37].decay * 0.950f, RipUpMode::NEARDRC, false}, // 37
+    {7, -4,  8, FlexDR::weight_multipliers_[38].drc_cost * shapeCost,     FlexDR::weight_multipliers_[38].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[38].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[38].decay * 0.950f, RipUpMode::DRC    , false}, // 38
+    {7, -5,  8, FlexDR::weight_multipliers_[39].drc_cost * shapeCost,     FlexDR::weight_multipliers_[39].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[39].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[39].decay * 0.950f, RipUpMode::DRC    , false}, // 39
+    {7, -6,  8, FlexDR::weight_multipliers_[40].drc_cost * shapeCost,     FlexDR::weight_multipliers_[40].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[40].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[40].decay * 0.990f, RipUpMode::DRC    , false}, // 40
+    {3, -2,  8, FlexDR::weight_multipliers_[41].drc_cost * shapeCost,     FlexDR::weight_multipliers_[41].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[41].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[41].decay * 0.990f, RipUpMode::ALL    , false}, // 41
+    {7,  0, 16, FlexDR::weight_multipliers_[42].drc_cost * shapeCost,     FlexDR::weight_multipliers_[42].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[42].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[42].decay * 0.990f, RipUpMode::DRC    , false}, // 42
+    {7, -1, 16, FlexDR::weight_multipliers_[43].drc_cost * shapeCost,     FlexDR::weight_multipliers_[43].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[43].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[43].decay * 0.990f, RipUpMode::DRC    , false}, // 43
+    {7, -2, 16, FlexDR::weight_multipliers_[44].drc_cost * shapeCost,     FlexDR::weight_multipliers_[44].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[44].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[44].decay * 0.990f, RipUpMode::NEARDRC, false}, // 44
+    {7, -3, 16, FlexDR::weight_multipliers_[45].drc_cost * shapeCost,     FlexDR::weight_multipliers_[45].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[45].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[45].decay * 0.990f, RipUpMode::DRC    , false}, // 45
+    {7, -4, 16, FlexDR::weight_multipliers_[46].drc_cost * shapeCost,     FlexDR::weight_multipliers_[46].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[46].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[46].decay * 0.990f, RipUpMode::DRC    , false}, // 46
+    {7, -5, 16, FlexDR::weight_multipliers_[47].drc_cost * shapeCost,     FlexDR::weight_multipliers_[47].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[47].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[47].decay * 0.990f, RipUpMode::DRC    , false}, // 47
+    {7, -6, 16, FlexDR::weight_multipliers_[48].drc_cost * shapeCost,     FlexDR::weight_multipliers_[48].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[48].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[48].decay * 0.990f, RipUpMode::DRC    , false}, // 48
+    {3,  0,  8, FlexDR::weight_multipliers_[49].drc_cost * shapeCost,     FlexDR::weight_multipliers_[49].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[49].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[49].decay * 0.990f, RipUpMode::ALL    , false}, // 49
+    {7,  0, 32, FlexDR::weight_multipliers_[50].drc_cost * shapeCost,     FlexDR::weight_multipliers_[50].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[50].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[50].decay * 0.999f, RipUpMode::DRC    , false}, // 50
+    {7, -1, 32, FlexDR::weight_multipliers_[51].drc_cost * shapeCost,     FlexDR::weight_multipliers_[51].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[51].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[51].decay * 0.999f, RipUpMode::NEARDRC, false}, // 51
+    {7, -2, 32, FlexDR::weight_multipliers_[52].drc_cost * shapeCost,     FlexDR::weight_multipliers_[52].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[52].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[52].decay * 0.999f, RipUpMode::DRC    , false}, // 52
+    {7, -3, 32, FlexDR::weight_multipliers_[53].drc_cost * shapeCost,     FlexDR::weight_multipliers_[53].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[53].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[53].decay * 0.999f, RipUpMode::DRC    , false}, // 53
+    {7, -4, 32, FlexDR::weight_multipliers_[54].drc_cost * shapeCost,     FlexDR::weight_multipliers_[54].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[54].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[54].decay * 0.999f, RipUpMode::DRC    , false}, // 54
+    {7, -5, 32, FlexDR::weight_multipliers_[55].drc_cost * shapeCost,     FlexDR::weight_multipliers_[55].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[55].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[55].decay * 0.999f, RipUpMode::DRC    , false}, // 55
+    {7, -6, 32, FlexDR::weight_multipliers_[56].drc_cost * shapeCost,     FlexDR::weight_multipliers_[56].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[56].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[56].decay * 0.999f, RipUpMode::DRC    , false}, // 56
+    {3, -1,  8, FlexDR::weight_multipliers_[57].drc_cost * shapeCost,     FlexDR::weight_multipliers_[57].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[57].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[57].decay * 0.999f, RipUpMode::ALL    , false}, // 57
+    {7,  0, 64, FlexDR::weight_multipliers_[58].drc_cost * shapeCost,     FlexDR::weight_multipliers_[58].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[58].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[58].decay * 0.999f, RipUpMode::NEARDRC, false}, // 58
+    {7, -1, 64, FlexDR::weight_multipliers_[59].drc_cost * shapeCost,     FlexDR::weight_multipliers_[59].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[59].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[59].decay * 0.999f, RipUpMode::DRC    , false}, // 59
+    {7, -2, 64, FlexDR::weight_multipliers_[60].drc_cost * shapeCost,     FlexDR::weight_multipliers_[60].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[60].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[60].decay * 0.999f, RipUpMode::DRC    , false}, // 60
+    {7, -3, 64, FlexDR::weight_multipliers_[61].drc_cost * shapeCost,     FlexDR::weight_multipliers_[61].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[61].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[61].decay * 0.999f, RipUpMode::DRC    , false}, // 61
+    {7, -4, 64, FlexDR::weight_multipliers_[62].drc_cost * shapeCost,     FlexDR::weight_multipliers_[62].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[62].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[62].decay * 0.999f, RipUpMode::DRC    , false}, // 62
+    {7, -5, 64, FlexDR::weight_multipliers_[63].drc_cost * shapeCost,     FlexDR::weight_multipliers_[63].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[63].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[63].decay * 0.999f, RipUpMode::DRC    , false}, // 63
+    {7, -6, 64, FlexDR::weight_multipliers_[64].drc_cost * shapeCost,     FlexDR::weight_multipliers_[64].marker_cost * MARKERCOST,    FlexDR::weight_multipliers_[64].fixed_cost * shapeCost,     FlexDR::weight_multipliers_[64].decay * 0.999f, RipUpMode::DRC    , false}  // 64
   };
   // clang-format on
 }
