@@ -99,6 +99,7 @@ struct ParamStruct
   int minAccessPoints = -1;
   bool saveGuideUpdates = false;
   std::string repairPDNLayerName;
+  std::string cost_weights_file;
 };
 
 class TritonRoute
@@ -194,6 +195,8 @@ class TritonRoute
   void prep();
   odb::dbDatabase* getDb() const { return db_; }
   void fixMaxSpacing();
+  void setWeightFile(const std::string& file);
+  std::string getWeightFile() const;
 
  private:
   std::unique_ptr<frDesign> design_;
@@ -215,6 +218,7 @@ class TritonRoute
   int results_sz_{0};
   unsigned int cloud_sz_{0};
   boost::asio::thread_pool dist_pool_{1};
+  std::string cost_weights_file_;
 
   void initDesign();
   void gr();

@@ -62,6 +62,9 @@ namespace drt {
 
 using utl::ThreadException;
 
+// custom weights
+std::vector<WeightMultipliers> FlexDR::weight_multipliers_;
+
 enum class SerializationType
 {
   READ,
@@ -115,8 +118,11 @@ FlexDR::FlexDR(TritonRoute* router,
       dist_port_(0),
       increaseClipsize_(false),
       clipSizeInc_(0),
-      iter_(0)
+      iter_(0),
+      cost_weights_file_("")
 {
+  cost_weights_file_ = router->getWeightFile();
+  logger_->info(DRT, 509, "Cost weights file path set to: {}", cost_weights_file_);
 }
 
 FlexDR::~FlexDR() = default;
@@ -473,6 +479,10 @@ void FlexDR::init()
   }
 
   iter_ = 0;
+  loadCustomWeights();  // Load custom weights if available
+  if (weight_multipliers_.empty()) {
+    initDefaultMultipliers();  // Initialize default weight multipliers if no custom weights are loaded
+  }
 
   if (VERBOSE > 0) {
     logger_->info(DRT, 194, "Start detail routing.");
@@ -562,6 +572,15 @@ void FlexDR::getBatchInfo(int& batchStepX, int& batchStepY)
 void FlexDR::searchRepair(const SearchRepairArgs& args)
 {
   const int iter = iter_++;
+  int weight_idx;
+  if (iter >= weight_multipliers_.size()) {
+    logger_->warn(DRT, 49, "Using last available weight multiplier for iteration {}", iter);
+    weight_idx = weight_multipliers_.size() - 1;
+  }
+  else {
+    weight_idx = iter;
+  }
+  
   const int size = args.size;
   const int offset = args.offset;
   const int mazeEndIter = args.mazeEndIter;
@@ -597,14 +616,20 @@ void FlexDR::searchRepair(const SearchRepairArgs& args)
     } else {
       suffix = "th";
     }
-    logger_->info(DRT, 195, "Start {}{} optimization iteration.", iter, suffix);
+    logger_->info(DRT, 195, "Start {}{} optimization iteration with cost weights [{} {} {} {}]", iter, suffix, weight_multipliers_[weight_idx].drc_cost, weight_multipliers_[weight_idx].marker_cost, weight_multipliers_[weight_idx].fixed_cost, weight_multipliers_[weight_idx].decay);
 
-    std::string weights_info = fmt::format("DRC, Marker, Fixed, Decay: [{},{},{},{}]",
-                                    weight_multipliers_[iter].drc_cost,
-                                    weight_multipliers_[iter].marker_cost,
-                                    weight_multipliers_[iter].fixed_cost,
-                                    weight_multipliers_[iter].decay);
-    logger_->info(DRT,196, weights_info);
+    // logger_->info(DRT, 196, "DRC Marker Fixed Decay: [{},{},{},{}]", 
+    //           weight_multipliers_[iter].drc_cost,     // first {}
+    //           weight_multipliers_[iter].marker_cost,   // second {}
+    //           weight_multipliers_[iter].fixed_cost,    // third {}
+    //           weight_multipliers_[iter].decay);        // fourth {}
+
+    // std::string weights_info = fmt::format("DRC, Marker, Fixed, Decay: [{},{},{},{}].",
+    //                                 weight_multipliers_[iter].drc_cost,
+    //                                 weight_multipliers_[iter].marker_cost,
+    //                                 weight_multipliers_[iter].fixed_cost,
+    //                                 weight_multipliers_[iter].decay);
+    // logger_->info(DRT,196, weights_info);
   }
   if (graphics_) {
     graphics_->startIter(iter);
@@ -989,8 +1014,7 @@ void FlexDR::end(bool done)
       msg << "-";
     }
     msg << std::endl;
-    for (int i = getTech()->getBottomLayerNum();
-         i <= getTech()->getTopLayerNum();
+    for (int i = 0; i <= getTech()->getTopLayerNum();
          i++) {
       if (getTech()->getLayer(i)->getType() == dbTechLayerType::CUT) {
         msg << " " << std::setw(nameLen)
@@ -1044,74 +1068,119 @@ void FlexDR::end(bool done)
 }
 
 void FlexDR::initDefaultMultipliers() {
-  weight_multipliers_.clear();
-  weight_multipliers_ = {
-    {1, 0, 1, 1.0f},     // iter 0
-    {1, 1, 1, 1.0f},     // iter 1
-    {1, 1, 1, 1.0f},     // iter 2
-    {1, 1, 2, 1.0f},     // iter 3
-    {1, 1, 2, 1.0f},     // iter 4
-    {1, 1, 2, 1.0f},     // iter 5
-    {1, 1, 2, 1.0f},     // iter 6
-    {1, 1, 2, 1.0f},     // iter 7
-    {1, 1, 2, 1.0f},     // iter 8
-    {1, 1, 2, 1.0f},     // iter 9
-    {2, 1, 3, 1.0f},     // iter 10
-    {2, 1, 3, 1.0f},     // iter 11
-    {2, 1, 3, 1.0f},     // iter 12
-    {2, 1, 3, 1.0f},     // iter 13
-    {2, 1, 3, 1.0f},     // iter 14
-    {2, 1, 4, 1.0f},     // iter 15
-    {2, 1, 4, 1.0f},     // iter 16
-    {1, 1, 4, 1.0f},     // iter 17
-    {4, 1, 4, 1.0f},     // iter 18
-    {4, 1, 4, 1.0f},     // iter 19
-    {4, 1, 10, 1.0f},   // iter 20
-    {4, 1, 10, 1.0f},    // iter 21
-    {4, 1, 10, 1.0f},    // iter 22
-    {1, 1, 10, 1.0f},    // iter 23
-    {4, 1, 10, 1.0f},    // iter 24
-    {1, 1, 10, 1.0f},    // iter 25
-    {8, 2, 10, 1.0f},    // iter 26
-    {8, 2, 10, 1.0f},    // iter 27
-    {8, 2, 10, 1.0f},    // iter 28
-    {8, 2, 10, 1.0f},    // iter 29
-    {1, 1, 50, 1.0f},    // iter 30
-    {8, 2, 50, 1.0f},    // iter 31
-    {8, 2, 50, 1.0f},    // iter 32
-    {1, 1, 50, 1.0f},    // iter 33
-    {16, 4, 50, 1.0f},   // iter 34
-    {16, 4, 50, 1.0f},   // iter 35
-    {16, 4, 50, 1.0f},   // iter 36
-    {1, 1, 50, 1.0f},    // iter 37
-    {16, 4, 50, 1.0f},   // iter 38
-    {16, 4, 50, 1.0f},   // iter 39
-    {16, 4, 100, 1.0f},  // iter 40
-    {1, 1, 100, 1.0f},   // iter 41
-    {16, 4, 100, 1.0f},  // iter 42
-    {16, 4, 100, 1.0f},  // iter 43
-    {1, 1, 100, 1.0f},   // iter 44
-    {16, 4, 100, 1.0f},  // iter 45
-    {16, 4, 100, 1.0f},  // iter 46
-    {16, 4, 100, 1.0f},  // iter 47
-    {16, 4, 100, 1.0f},  // iter 48
-    {1, 1, 100, 1.0f},   // iter 49
-    {32, 8, 100, 1.0f},  // iter 50
-    {1, 1, 100, 1.0f},   // iter 51
-    {32, 8, 100, 1.0f},  // iter 52
-    {32, 8, 100, 1.0f},  // iter 53
-    {32, 8, 100, 1.0f},  // iter 54
-    {32, 8, 100, 1.0f},  // iter 55
-    {32, 8, 100, 1.0f},  // iter 56
-    {1, 1, 100, 1.0f},   // iter 57
-    {1, 1, 100, 1.0f},   // iter 58
-    {64, 16, 100, 1.0f}, // iter 59
-    {64, 16, 100, 1.0f}, // iter 60
-    {64, 16, 100, 1.0f}, // iter 61
-    {64, 16, 100, 1.0f}, // iter 62
-    {64, 16, 100, 1.0f}, // iter 63
-    {64, 16, 100, 1.0f}  // iter 64
-  };
+  if (weight_multipliers_.empty()) {
+    weight_multipliers_ = {
+      {1, 0, 1, 1.0f},     // iter 0
+      {1, 1, 1, 1.0f},     // iter 1
+      {1, 1, 1, 1.0f},     // iter 2
+      {1, 1, 2, 1.0f},     // iter 3
+      {1, 1, 2, 1.0f},     // iter 4
+      {1, 1, 2, 1.0f},     // iter 5
+      {1, 1, 2, 1.0f},     // iter 6
+      {1, 1, 2, 1.0f},     // iter 7
+      {1, 1, 2, 1.0f},     // iter 8
+      {1, 1, 2, 1.0f},     // iter 9
+      {2, 1, 3, 1.0f},     // iter 10
+      {2, 1, 3, 1.0f},     // iter 11
+      {2, 1, 3, 1.0f},     // iter 12
+      {2, 1, 3, 1.0f},     // iter 13
+      {2, 1, 3, 1.0f},     // iter 14
+      {2, 1, 4, 1.0f},     // iter 15
+      {2, 1, 4, 1.0f},     // iter 16
+      {1, 1, 4, 1.0f},     // iter 17
+      {4, 1, 4, 1.0f},     // iter 18
+      {4, 1, 4, 1.0f},     // iter 19
+      {4, 1, 10, 1.0f},   // iter 20
+      {4, 1, 10, 1.0f},    // iter 21
+      {4, 1, 10, 1.0f},    // iter 22
+      {1, 1, 10, 1.0f},    // iter 23
+      {4, 1, 10, 1.0f},    // iter 24
+      {1, 1, 10, 1.0f},    // iter 25
+      {8, 2, 10, 1.0f},    // iter 26
+      {8, 2, 10, 1.0f},    // iter 27
+      {8, 2, 10, 1.0f},    // iter 28
+      {8, 2, 10, 1.0f},    // iter 29
+      {1, 1, 50, 1.0f},    // iter 30
+      {8, 2, 50, 1.0f},    // iter 31
+      {8, 2, 50, 1.0f},    // iter 32
+      {1, 1, 50, 1.0f},    // iter 33
+      {16, 4, 50, 1.0f},   // iter 34
+      {16, 4, 50, 1.0f},   // iter 35
+      {16, 4, 50, 1.0f},   // iter 36
+      {1, 1, 50, 1.0f},    // iter 37
+      {16, 4, 50, 1.0f},   // iter 38
+      {16, 4, 50, 1.0f},   // iter 39
+      {16, 4, 100, 1.0f},  // iter 40
+      {1, 1, 100, 1.0f},   // iter 41
+      {16, 4, 100, 1.0f},  // iter 42
+      {16, 4, 100, 1.0f},  // iter 43
+      {1, 1, 100, 1.0f},   // iter 44
+      {16, 4, 100, 1.0f},  // iter 45
+      {16, 4, 100, 1.0f},  // iter 46
+      {16, 4, 100, 1.0f},  // iter 47
+      {16, 4, 100, 1.0f},  // iter 48
+      {1, 1, 100, 1.0f},   // iter 49
+      {32, 8, 100, 1.0f},  // iter 50
+      {1, 1, 100, 1.0f},   // iter 51
+      {32, 8, 100, 1.0f},  // iter 52
+      {32, 8, 100, 1.0f},  // iter 53
+      {32, 8, 100, 1.0f},  // iter 54
+      {32, 8, 100, 1.0f},  // iter 55
+      {32, 8, 100, 1.0f},  // iter 56
+      {1, 1, 100, 1.0f},   // iter 57
+      {1, 1, 100, 1.0f},   // iter 58
+      {64, 16, 100, 1.0f}, // iter 59
+      {64, 16, 100, 1.0f}, // iter 60
+      {64, 16, 100, 1.0f}, // iter 61
+      {64, 16, 100, 1.0f}, // iter 62
+      {64, 16, 100, 1.0f}, // iter 63
+      {64, 16, 100, 1.0f}  // iter 64
+    };
+  }  
+}
+
+void FlexDR::loadCustomWeights() {
+  if (!cost_weights_file_.empty()) {
+    std::string resolved_path = cost_weights_file_;
+    std::ifstream file(resolved_path);
+    
+    if (!file.is_open()) {
+      resolved_path = "./" + cost_weights_file_;
+      file = std::ifstream(resolved_path);
+    }
+    
+    if (file.is_open()) {
+      weight_multipliers_.clear();  // Only clear if we successfully opened the file
+      std::string line;
+      size_t line_num = 0;
+      
+      while (std::getline(file, line)) {
+        line_num++;
+        std::stringstream ss(line);
+        std::string token;
+        std::vector<std::string> tokens;
+        while (std::getline(ss, token, ',')) {
+          tokens.push_back(token);
+        }
+        if (tokens.size() >= 4) {
+          try {
+            weight_multipliers_.push_back({
+              static_cast<frUInt4>(std::stoi(tokens[0])), // drc_cost
+              static_cast<frUInt4>(std::stoi(tokens[1])), // marker_cost
+              static_cast<frUInt4>(std::stoi(tokens[2])), // fixed_cost
+              std::stof(tokens[3])                        // decay
+            });
+          } catch (...) {
+            weight_multipliers_.clear();
+            return;
+          }
+        } else {
+          weight_multipliers_.clear();
+          return;
+        }
+      }
+    }
+  }
 }
 
 static std::vector<FlexDR::SearchRepairArgs> strategy()

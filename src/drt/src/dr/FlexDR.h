@@ -145,8 +145,9 @@ class FlexDR
   // custom weights
   static std::vector<WeightMultipliers>weight_multipliers_;
   static void initDefaultMultipliers();
-  
-
+  void loadCustomWeights();
+  void setWeightFile(const std::string& file) { cost_weights_file_ = file; }
+  std::string getWeightFile() const { return cost_weights_file_; }
 
  private:
   TritonRoute* router_;
@@ -189,6 +190,7 @@ class FlexDR
                           int size,
                           const Rect& routeBox);
   std::vector<frVia*> getLonelyVias(frLayer* layer, int max_spc, int cut_class);
+  std::string cost_weights_file_;
 };
 
 class FlexDRWorker;

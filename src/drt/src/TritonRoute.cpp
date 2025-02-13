@@ -1181,6 +1181,14 @@ void TritonRoute::setUnidirectionalLayer(const std::string& layerName)
   design_->getTech()->setUnidirectionalLayer(dbLayer);
 }
 
+void TritonRoute::setWeightFile(const std::string& file) {
+  cost_weights_file_ = file;
+}
+
+std::string TritonRoute::getWeightFile() const {
+  return cost_weights_file_;
+}
+
 void TritonRoute::setParams(const ParamStruct& params)
 {
   OUT_MAZE_FILE = params.outputMazeFile;
@@ -1217,6 +1225,9 @@ void TritonRoute::setParams(const ParamStruct& params)
   }
   SAVE_GUIDE_UPDATES = params.saveGuideUpdates;
   REPAIR_PDN_LAYER_NAME = params.repairPDNLayerName;
+  if (!params.cost_weights_file.empty()) {
+    cost_weights_file_ = params.cost_weights_file;
+  }
 }
 
 void TritonRoute::addWorkerResults(
