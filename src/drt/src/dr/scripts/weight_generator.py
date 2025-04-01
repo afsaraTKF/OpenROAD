@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 """
 Weight Generator for Circuit Routing
 
@@ -11,7 +12,7 @@ Usage: python weight_generator.py output_file.csv
 
 # ======= CONFIGURATION OPTIONS =======
 # Set this to True to use manual weights instead of generating them
-USE_MANUAL_WEIGHTS = True
+USE_MANUAL_WEIGHTS = False
 
 # Path to manual weights file (only used if USE_MANUAL_WEIGHTS is True)
 MANUAL_WEIGHTS_FILE = "manual_weights.csv"
@@ -21,19 +22,35 @@ MANUAL_WEIGHTS_FILE = "manual_weights.csv"
 PERTURBATION_FACTOR = 1.0
 # Set to True to reset perturbation factor back to 1.0
 RESET_PERTURBATION = False
-# Path to store perturbation state between runs
-PERTURBATION_STATE_FILE = "perturbation_state.txt"
+# Path to store state between runs (use absolute path to ensure consistency)
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+# Default state file (will be overridden if design name is provided)
+STATE_FILE = os.path.join(SCRIPT_DIR, "weight_generator_state.txt")
+# Current mode (auto, manual, or default)
+CURRENT_MODE = "auto"
+# Enable quasi-random sequence for better exploration (Sobol sequences)
+USE_QUASI_RANDOM = True
+# Current design name (for design-specific state tracking)
+DESIGN_NAME = None
 # ====================================
 
 import pandas as pd
 import numpy as np
-import os
 import random
 import sys
 import argparse
 import traceback
 import matplotlib.pyplot as plt
 import seaborn as sns
+
+# Try to import scipy for quasi-random sequences
+try:
+    from scipy.stats import qmc
+    HAS_SCIPY = True
+except ImportError:
+    HAS_SCIPY = False
+    print("Warning: scipy not found. Falling back to pure random sampling.")
+    USE_QUASI_RANDOM = False
 
 def load_initial_weights():
     """
@@ -325,6 +342,20 @@ def generate_perturbed_weights(initial_df, num_samples=100):
             'RipUpMode': combo['RipUpMode']
         })
     
+    # Determine if we should use quasi-random sequences for better exploration
+    remaining_samples = num_samples - len(perturbed_samples)
+    if USE_QUASI_RANDOM and HAS_SCIPY and remaining_samples > 0:
+        # Use Sobol sequence for better exploration of the weight space
+        return generate_sobol_weights(initial_df, weight_stats, num_samples, perturbed_samples)
+    else:
+        # Fall back to original method
+        return generate_random_weights(initial_df, initial_combinations, num_samples, perturbed_samples)
+
+
+def generate_random_weights(initial_df, initial_combinations, num_samples, perturbed_samples):
+    """
+    Generate weight samples using traditional random sampling (original method).
+    """
     # Generate the rest of the samples
     remaining_samples = num_samples - len(perturbed_samples)
     
@@ -359,6 +390,169 @@ def generate_perturbed_weights(initial_df, num_samples=100):
     
     # Remove duplicates if any
     result_df = result_df.drop_duplicates()
+    
+    return result_df
+
+
+def generate_sobol_weights(initial_df, weight_stats, num_samples, existing_samples):
+    """
+    Generate weight samples using Sobol sequences for better space exploration.
+    
+    This method ensures maximum exploration of the weight space by using
+    low-discrepancy sequences (Sobol) which provide more uniform coverage
+    compared to pure random sampling.
+    
+    Args:
+        initial_df: DataFrame with the initial weights
+        weight_stats: Statistics for each weight by RipUpMode
+        num_samples: Total number of samples to generate
+        existing_samples: List of already generated samples
+        
+    Returns:
+        DataFrame with perturbed weights using Sobol sequences
+    """
+    # Determine how many more samples we need
+    remaining_samples = num_samples - len(existing_samples)
+    if remaining_samples <= 0:
+        return pd.DataFrame(existing_samples)
+        
+    print(f"Using Sobol sequences for generating {remaining_samples} additional weight combinations")
+    
+    # Define weight ranges for each RipUpMode
+    mode_ranges = {}
+    for mode in initial_df['RipUpMode'].unique():
+        # Get the stats for this mode
+        stats = weight_stats[mode]
+        
+        # Use full ranges for maximum exploration as requested
+        mode_ranges[mode] = {
+            'drc_weight': (0, 100),     # Full range 0-100 for maximum exploration
+            'marker_weight': (0, 100),  # Full range 0-100 for maximum exploration
+            'fixed_weight': (0, 100),   # Full range 0-100 for maximum exploration
+            'decay_weight': (0, 1.0)    # Full range 0-1 for maximum exploration
+        }
+    
+    # Create a Sobol sequence generator 
+    # Use dimension 4 for the 4 weights we need to generate
+    sampler = qmc.Sobol(d=4, scramble=True, seed=int(100 * PERTURBATION_FACTOR))
+    
+    # Generate base samples in [0, 1) range
+    # We generate extra samples as some may be filtered out due to constraints
+    # Ensure n is a power of 2 for optimal balance (Sobol requirement)
+    n_samples = remaining_samples * 3
+    # Find the next power of 2
+    power_of_2 = 2 ** int(np.ceil(np.log2(n_samples)))
+    sample_points = sampler.random(n=power_of_2)
+    
+    # Container for new samples
+    sobol_samples = []
+    
+    # Generate samples for each RipUpMode proportionally
+    mode_proportions = initial_df['RipUpMode'].value_counts(normalize=True)
+    samples_per_mode = {mode: int(remaining_samples * prop) for mode, prop in mode_proportions.items()}
+    
+    # Ensure we have at least a few samples per mode
+    for mode in samples_per_mode:
+        if samples_per_mode[mode] < 3:
+            samples_per_mode[mode] = 3
+    
+    # Adjust total to match requested number
+    total_allocated = sum(samples_per_mode.values())
+    if total_allocated < remaining_samples:
+        # Add the remainder to the most common mode
+        most_common_mode = mode_proportions.idxmax()
+        samples_per_mode[most_common_mode] += (remaining_samples - total_allocated)
+    
+    # Track used indices in the sample_points array
+    used_indices = 0
+    
+    # Generate samples for each mode
+    for mode, num_mode_samples in samples_per_mode.items():
+        mode_ranges_dict = mode_ranges[mode]
+        
+        for i in range(num_mode_samples):
+            if used_indices >= len(sample_points):
+                break
+                
+            # Get the Sobol point
+            point = sample_points[used_indices]
+            used_indices += 1
+            
+            # Scale the point to the actual ranges for this mode
+            # Apply non-linear scaling to favor certain values within the ranges
+            if mode == "DRC":
+                # For DRC mode, prefer powers of 2 for drc_weight
+                powers = [1, 2, 4, 8, 16, 32, 64]
+                drc_idx = int(point[0] * len(powers))
+                drc_idx = min(drc_idx, len(powers) - 1)
+                drc_weight = powers[drc_idx]
+            else:
+                # Full range exploration (0-100) as requested
+                # Properly format as 2D array for qmc.scale
+                drc_weight = int(qmc.scale(np.array([[point[0]]]), 0, 100)[0][0])
+            
+            # Marker weight with appropriate ranges per mode
+            marker_min, marker_max = mode_ranges_dict['marker_weight']
+            # Full range exploration (0-100) as requested
+            # Properly format as 2D array for qmc.scale
+            marker_weight = int(qmc.scale(np.array([[point[1]]]), 0, 100)[0][0])
+            
+            # Fixed weight with common values plus exploration
+            fixed_values = [1, 2, 3, 4, 10, 50, 100]
+            if random.random() < 0.7:  # 70% chance to use common values
+                fixed_idx = int(point[2] * len(fixed_values))
+                fixed_idx = min(fixed_idx, len(fixed_values) - 1)
+                fixed_weight = fixed_values[fixed_idx]
+            else:  # 30% chance to explore between ranges
+                # Full range exploration (0-100) as requested
+                # Properly format as 2D array for qmc.scale
+                fixed_weight = int(qmc.scale(np.array([[point[2]]]), 0, 100)[0][0])
+            
+            # Decay weight with typical values
+            decay_values = [0.99, 0.995, 0.997, 0.999, 1.0]
+            if random.random() < 0.8:  # 80% chance to use common values
+                decay_idx = int(point[3] * len(decay_values))
+                decay_idx = min(decay_idx, len(decay_values) - 1)
+                decay_weight = decay_values[decay_idx]
+            else:  # 20% chance to explore between range
+                # Full range exploration (0-1) as requested
+                # Properly format as 2D array for qmc.scale
+                decay_weight = float(qmc.scale(np.array([[point[3]]]), 0, 1.0)[0][0])
+                decay_weight = round(decay_weight, 3)  # Round to 3 decimal places
+            
+            # Create the sample
+            sobol_samples.append({
+                'drc_weight': drc_weight,
+                'marker_weight': marker_weight,
+                'fixed_weight': fixed_weight,
+                'decay_weight': decay_weight,
+                'RipUpMode': mode
+            })
+    
+    # Combine existing and new samples
+    all_samples = existing_samples + sobol_samples
+    
+    # Convert to DataFrame
+    result_df = pd.DataFrame(all_samples)
+    
+    # Ensure we have no duplicates
+    result_df = result_df.drop_duplicates()
+    
+    # If we still don't have enough samples, add some using original method
+    if len(result_df) < num_samples:
+        print(f"Need {num_samples - len(result_df)} more samples, generating using traditional method")
+        # Add more samples using traditional method
+        additional_df = generate_random_weights(
+            initial_df, 
+            initial_df.drop_duplicates().to_dict('records'),
+            num_samples - len(result_df), 
+            []
+        )
+        result_df = pd.concat([result_df, additional_df]).drop_duplicates()
+    
+    # If we have too many samples, take a random subset
+    if len(result_df) > num_samples:
+        result_df = result_df.sample(num_samples)
     
     return result_df
 
@@ -454,39 +648,62 @@ def visualize_weights(initial_df, perturbed_df, output_dir=None):
     
     print(f"Generated visualizations in {output_dir}")
 
-def load_perturbation_state():
-    """Load the perturbation factor from the state file or use default if not found."""
-    global PERTURBATION_FACTOR, RESET_PERTURBATION
+def load_state():
+    """Load the current mode and perturbation factor from the state file."""
+    global CURRENT_MODE, PERTURBATION_FACTOR, RESET_PERTURBATION
     
+    # If we're resetting perturbation, do that regardless of the saved state
     if RESET_PERTURBATION:
         print("Resetting perturbation factor to 1.0")
         PERTURBATION_FACTOR = 1.0
-        # Save the reset state
-        with open(PERTURBATION_STATE_FILE, 'w') as f:
-            f.write(str(PERTURBATION_FACTOR))
+        # We'll save this reset state when save_state is called
         return
     
     try:
-        if os.path.exists(PERTURBATION_STATE_FILE):
-            with open(PERTURBATION_STATE_FILE, 'r') as f:
-                saved_factor = float(f.read().strip())
-                # Increase the factor for this run
-                PERTURBATION_FACTOR = saved_factor + 1.0
-                print(f"Loaded perturbation factor {saved_factor}, increasing to {PERTURBATION_FACTOR}")
+        if os.path.exists(STATE_FILE):
+            with open(STATE_FILE, 'r') as f:
+                lines = f.readlines()
+                
+                # Parse mode (first line)
+                if len(lines) > 0:
+                    saved_mode = lines[0].strip()
+                    if saved_mode in ["auto", "manual", "default"]:
+                        CURRENT_MODE = saved_mode
+                        print(f"Loaded previous mode: {CURRENT_MODE}")
+                    else:
+                        print(f"Invalid mode in state file: {saved_mode}, using 'auto'")
+                
+                # Parse perturbation factor (second line)
+                if len(lines) > 1:
+                    saved_factor = float(lines[1].strip())
+                    # Increase the factor for this run if in auto mode
+                    if CURRENT_MODE == "auto":
+                        # Cap the perturbation factor to prevent extreme values
+                        # but still allow it to grow for long runs (150-200)
+                        PERTURBATION_FACTOR = min(saved_factor + 1.0, 200.0)
+                        print(f"Loaded perturbation factor {saved_factor}, increasing to {PERTURBATION_FACTOR}")
+                    else:
+                        PERTURBATION_FACTOR = saved_factor
+                        print(f"Loaded perturbation factor {PERTURBATION_FACTOR}")
+                else:
+                    print(f"No perturbation factor found, using default: {PERTURBATION_FACTOR}")
         else:
-            print(f"No perturbation state found, using default factor {PERTURBATION_FACTOR}")
+            print(f"No state file found, using defaults: mode={CURRENT_MODE}, factor={PERTURBATION_FACTOR}")
     except Exception as e:
-        print(f"Error loading perturbation state: {str(e)}")
-        print(f"Using default perturbation factor {PERTURBATION_FACTOR}")
+        print(f"Error loading state: {str(e)}")
+        print(f"Using defaults: mode={CURRENT_MODE}, factor={PERTURBATION_FACTOR}")
 
-def save_perturbation_state():
-    """Save the current perturbation factor to the state file."""
+def save_state():
+    """Save the current mode and perturbation factor to the state file."""
     try:
-        with open(PERTURBATION_STATE_FILE, 'w') as f:
-            f.write(str(PERTURBATION_FACTOR))
-        print(f"Saved perturbation factor {PERTURBATION_FACTOR} for next run")
+        with open(STATE_FILE, 'w') as f:
+            # Write mode on first line
+            f.write(f"{CURRENT_MODE}\n")
+            # Write perturbation factor on second line
+            f.write(f"{PERTURBATION_FACTOR}\n")
+        print(f"Saved state: mode={CURRENT_MODE}, factor={PERTURBATION_FACTOR}")
     except Exception as e:
-        print(f"Error saving perturbation state: {str(e)}")
+        print(f"Error saving state: {str(e)}")
 
 def main():
     """Main function to generate perturbed weights and save to CSV."""
@@ -495,28 +712,107 @@ def main():
     parser.add_argument('--visualize', action='store_true', help='Generate visualization plots')
     parser.add_argument('--num-samples', type=int, default=100, help='Number of weight combinations to generate')
     parser.add_argument('--seed', type=int, help='Random seed for reproducibility')
+    parser.add_argument('--manual', action='store_true', help='Use manual weights instead of generating them')
+    parser.add_argument('--default', action='store_true', help='Use default weights from flow/default_weights.csv')
+    parser.add_argument('--auto', action='store_true', help='Force automatic weight generation mode')
+    parser.add_argument('--design', type=str, help='Design name for design-specific state tracking')
+    parser.add_argument('--reset', action='store_true', help='Reset perturbation factor back to 1.0')
     args = parser.parse_args()
     
     try:
-        # Load and update perturbation state
-        load_perturbation_state()
-        
-        # Set random seed if provided
-        if args.seed is not None:
-            random.seed(args.seed)
-            np.random.seed(args.seed)
-            
         print(f"Weight generator starting - will save results to {args.output_file}")
-        print(f"Current perturbation factor: {PERTURBATION_FACTOR}")
         
         # Create output directory if it doesn't exist
         output_dir = os.path.dirname(args.output_file)
         if output_dir and not os.path.exists(output_dir):
             os.makedirs(output_dir, exist_ok=True)
         
-        # Check if we're using manual weights (based on the flag at the top of the file)
-        if USE_MANUAL_WEIGHTS:
+        # Set mode based on flags
+        global CURRENT_MODE, RESET_PERTURBATION, DESIGN_NAME, STATE_FILE
+        
+        # Auto-detect design from environment variables or output file path
+        global DESIGN_NAME, STATE_FILE
+        
+        # First try to get design from command line argument
+        if args.design:
+            DESIGN_NAME = args.design
+        else:
+            # Try to detect from environment variables
+            try:
+                # Try to get design from DESIGN_NAME environment variable
+                env_design = os.environ.get("DESIGN_NAME", "")
+                if env_design:
+                    DESIGN_NAME = env_design
+                    print(f"Detected design '{DESIGN_NAME}' from DESIGN_NAME environment variable")
+                else:
+                    # Try to extract from DESIGN_CONFIG environment variable
+                    design_config = os.environ.get("DESIGN_CONFIG", "")
+                    if design_config:
+                        # Format is typically designs/platform/design/config.mk
+                        parts = design_config.split('/')
+                        if len(parts) >= 3:
+                            DESIGN_NAME = parts[-2]  # Extract design name
+                            print(f"Detected design '{DESIGN_NAME}' from DESIGN_CONFIG environment variable")
+                    else:
+                        # Try to extract from the output file path
+                        # Typical path structure: /path/to/flow/designs/platform/design/...
+                        path_parts = args.output_file.split('/')
+                        if 'designs' in path_parts:
+                            designs_idx = path_parts.index('designs')
+                            if len(path_parts) > designs_idx + 2:
+                                DESIGN_NAME = path_parts[designs_idx + 2]
+                                print(f"Detected design '{DESIGN_NAME}' from output file path")
+            except Exception as e:
+                print(f"Warning: Failed to auto-detect design name: {str(e)}")
+        
+        # If design name was detected, create design-specific state file
+        if DESIGN_NAME:
+            STATE_FILE = os.path.join(SCRIPT_DIR, f"weight_generator_state_{DESIGN_NAME}.txt")
+            print(f"Using design-specific state file for design: {DESIGN_NAME}")
+        else:
+            print("No design name detected, using default state file")
+        
+        # Check if reset flag is set
+        if args.reset:
+            RESET_PERTURBATION = True
+            print("Resetting perturbation factor to 1.0")
+            
+        if args.default:
+            CURRENT_MODE = "default"
+            RESET_PERTURBATION = True
+            print("Setting mode to 'default' and resetting perturbation")
+        elif args.manual:
+            CURRENT_MODE = "manual"
+            print("Setting mode to 'manual'")
+        elif args.auto:
+            CURRENT_MODE = "auto"
+            print("Setting mode to 'auto'")
+        else:
+            # No flag specified, load previous state
+            load_state()
+            print(f"No mode flag specified, using previous mode: {CURRENT_MODE}")
+            
+        # Process based on current mode
+        if CURRENT_MODE == "default":
+            # For default weights, use the exact path to default_weights.csv
+            default_weights_path = "/home/atk331/OpenROAD-flow-scripts/flow/default_weights.csv"
+            print(f"Using default weights from {default_weights_path}")
+            
+            # Load default weights
+            weights_df = load_manual_weights(default_weights_path)
+            
+            # Create output DataFrame with renamed columns
+            output_df = weights_df[['drc_weight', 'marker_weight', 'fixed_weight', 'decay_weight']].copy()
+            output_df.columns = ['drc_cost', 'marker_cost', 'fixed_cost', 'decay_cost']
+            
+            # Save to CSV
+            output_df.to_csv(args.output_file, index=False, header=False)
+            print(f"Saved {len(output_df)} weight combinations to {args.output_file}")
+            
+        elif CURRENT_MODE == "manual" or USE_MANUAL_WEIGHTS:
+            # For manual weights
             print(f"Using manual weights from {MANUAL_WEIGHTS_FILE}")
+            
             # Load manual weights
             weights_df = load_manual_weights(MANUAL_WEIGHTS_FILE)
             
@@ -528,64 +824,75 @@ def main():
             output_df.to_csv(args.output_file, index=False, header=False)
             print(f"Saved {len(output_df)} manual weight combinations to {args.output_file}")
             
-            # Save the perturbation state for next run
-            save_perturbation_state()
+        else:  # Auto mode
+            # Set random seed if provided
+            if args.seed is not None:
+                random.seed(args.seed)
+                np.random.seed(args.seed)
+                print(f"Using random seed: {args.seed}")
             
-            # Exit since we've done what was requested
-            return
+            print(f"Current perturbation factor: {PERTURBATION_FACTOR}")
+            
+            # If not using manual weights, proceed with normal generation
+            # Load initial weights
+            initial_df = load_initial_weights()
+            print(f"Loaded {len(initial_df)} initial weight combinations")
+            
+            # Get unique combinations
+            unique_initial = initial_df.drop_duplicates()
+            print(f"Found {len(unique_initial)} unique weight combinations")
+            
+            # Generate perturbed weights
+            perturbed_df = generate_perturbed_weights(initial_df, num_samples=args.num_samples)
+            print(f"Generated {len(perturbed_df)} perturbed weight combinations")
         
-        # If not using manual weights, proceed with normal generation
-        # Load initial weights
-        initial_df = load_initial_weights()
-        print(f"Loaded {len(initial_df)} initial weight combinations")
+            # Ensure we have exactly the requested number of samples
+            if len(perturbed_df) < args.num_samples:
+                print(f"Warning: Only generated {len(perturbed_df)} unique samples, adding duplicates")
+                # Add duplicates of random samples until we have the requested number
+                while len(perturbed_df) < args.num_samples:
+                    perturbed_df = pd.concat([perturbed_df, perturbed_df.sample(1)])
+            elif len(perturbed_df) > args.num_samples:
+                print(f"Warning: Generated {len(perturbed_df)} samples, sampling down to {args.num_samples}")
+                perturbed_df = perturbed_df.sample(args.num_samples)
+            
+            # Ensure integer columns are integers (not floats)
+            perturbed_df['drc_weight'] = perturbed_df['drc_weight'].astype(int)
+            perturbed_df['marker_weight'] = perturbed_df['marker_weight'].astype(int)
+            perturbed_df['fixed_weight'] = perturbed_df['fixed_weight'].astype(int)
+            
+            # Create output DataFrame with renamed columns and without RipUpMode
+            output_df = perturbed_df[['drc_weight', 'marker_weight', 'fixed_weight', 'decay_weight']].copy()
+            output_df.columns = ['drc_cost', 'marker_cost', 'fixed_cost', 'decay_cost']
+            
+            # Save to CSV
+            output_df.to_csv(args.output_file, index=False, header=False)
+            print(f"Saved {len(output_df)} weight combinations to {args.output_file}")
         
-        # Get unique combinations
-        unique_initial = initial_df.drop_duplicates()
-        print(f"Found {len(unique_initial)} unique weight combinations")
+            # Summary of generated weights
+            print("\nSummary of generated weights:")
+            for mode in perturbed_df['RipUpMode'].unique():
+                mode_df = perturbed_df[perturbed_df['RipUpMode'] == mode]
+                print(f"\n{mode} mode ({len(mode_df)} samples):")
+                for col in ['drc_weight', 'marker_weight', 'fixed_weight', 'decay_weight']:
+                    print(f"  {col}: min={mode_df[col].min()}, max={mode_df[col].max()}, mean={mode_df[col].mean():.2f}")
+            
+            # Generate visualizations if requested
+            if args.visualize:
+                output_dir = os.path.dirname(args.output_file)
+                visualize_dir = os.path.join(output_dir, "weight_plots") if output_dir else "weight_plots"
+                visualize_weights(initial_df, perturbed_df, output_dir=visualize_dir)
         
-        # Generate perturbed weights
-        perturbed_df = generate_perturbed_weights(initial_df, num_samples=args.num_samples)
-        print(f"Generated {len(perturbed_df)} perturbed weight combinations")
+        # Save the state for next run
+        save_state()
         
-        # Ensure we have exactly the requested number of samples
-        if len(perturbed_df) < args.num_samples:
-            print(f"Warning: Only generated {len(perturbed_df)} unique samples, adding duplicates")
-            # Add duplicates of random samples until we have the requested number
-            while len(perturbed_df) < args.num_samples:
-                perturbed_df = pd.concat([perturbed_df, perturbed_df.sample(1)])
-        elif len(perturbed_df) > args.num_samples:
-            print(f"Warning: Generated {len(perturbed_df)} samples, sampling down to {args.num_samples}")
-            perturbed_df = perturbed_df.sample(args.num_samples)
-        
-        # Ensure integer columns are integers (not floats)
-        perturbed_df['drc_weight'] = perturbed_df['drc_weight'].astype(int)
-        perturbed_df['marker_weight'] = perturbed_df['marker_weight'].astype(int)
-        perturbed_df['fixed_weight'] = perturbed_df['fixed_weight'].astype(int)
-        
-        # Create output DataFrame with renamed columns and without RipUpMode
-        output_df = perturbed_df[['drc_weight', 'marker_weight', 'fixed_weight', 'decay_weight']].copy()
-        output_df.columns = ['drc_cost', 'marker_cost', 'fixed_cost', 'decay_cost']
-        
-        # Save to CSV
-        output_df.to_csv(args.output_file, index=False, header=False)
-        print(f"Saved {len(output_df)} weight combinations to {args.output_file}")
-        
-        # Save the perturbation state for next run
-        save_perturbation_state()
-        
-        # Summary of generated weights
-        print("\nSummary of generated weights:")
-        for mode in perturbed_df['RipUpMode'].unique():
-            mode_df = perturbed_df[perturbed_df['RipUpMode'] == mode]
-            print(f"\n{mode} mode ({len(mode_df)} samples):")
-            for col in ['drc_weight', 'marker_weight', 'fixed_weight', 'decay_weight']:
-                print(f"  {col}: min={mode_df[col].min()}, max={mode_df[col].max()}, mean={mode_df[col].mean():.2f}")
-        
-        # Generate visualizations if requested
-        if args.visualize:
-            output_dir = os.path.dirname(args.output_file)
-            visualize_dir = os.path.join(output_dir, "weight_plots") if output_dir else "weight_plots"
-            visualize_weights(initial_df, perturbed_df, output_dir=visualize_dir)
+        # Print information about the state file used
+        if DESIGN_NAME:
+            print(f"State saved to design-specific file: {STATE_FILE}")
+        else:
+            print(f"State saved to default file: {STATE_FILE}")
+            print("Warning: Using default state file. Future runs will all share the same perturbation factor.")
+            print("To use design-specific tracking, set DESIGN_NAME environment variable before running make.")
         
     except Exception as e:
         print(f"Error generating weights: {str(e)}")
